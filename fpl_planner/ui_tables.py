@@ -19,6 +19,8 @@ CSS = """
 .sc td.team{background:#222}
 .sc td.pos{background:#16243a;font-weight:600}
 .sc td.tot{background:#1f3b2c;font-weight:700}
+.sc td.stat{background:#262626;font-size:14px}
+.sc th.stat{font-size:14px}
 .sc td.none{background:#3a3a3a;color:#999}
 .sc td.bench{opacity:.55}
 .sc .cap{display:inline-block;margin-left:5px;padding:0 5px;border-radius:9px;background:#fff;color:#111;
@@ -49,9 +51,24 @@ def _e(x) -> str:
     return html.escape(str(x))
 
 
+STAT_HEAD = ('<th class="stat" title="Selected by (% of managers)">TSB</th>'
+             '<th class="stat" title="Total points this season">TP</th>'
+             '<th class="stat" title="FPL form">Form</th>')
+
+
+def stat_cells(players: pd.DataFrame, pid: int | None) -> str:
+    """TSB, TP and Form cells for one player (blank cells if pid is None)."""
+    if pid is None or pid not in players.index:
+        return '<td class="stat"></td>' * 3
+    r = players.loc[pid]
+    return (f'<td class="stat">{r.tsb:.1f}%</td><td class="stat">{int(r.tp)}</td>'
+            f'<td class="stat">{r.form_score:.1f}</td>')
+
+
 def _head(gws, extra_first=("Player", "Team", "Pos")) -> str:
     cells = "".join(f'<th class="l">{_e(c)}</th>' if c == "Player" else f"<th>{_e(c)}</th>" for c in extra_first)
-    return "<thead><tr>" + cells + "".join(f"<th>GW{g}</th>" for g in gws) + "<th>Total</th></tr></thead>"
+    return ("<thead><tr>" + cells + STAT_HEAD + "".join(f"<th>GW{g}</th>" for g in gws)
+            + "<th>Total</th></tr></thead>")
 
 
 def squad_grid(squad: list[int], players: pd.DataFrame, proj: pd.DataFrame, gws: list[int]) -> str:
@@ -64,7 +81,7 @@ def squad_grid(squad: list[int], players: pd.DataFrame, proj: pd.DataFrame, gws:
         news = f'<span class="tag" title="{_e(r.news)}">⚠️</span>' if isinstance(r.news, str) and r.news else ""
         cells = "".join(f'<td style="background:{colour(v)}">{"" if pd.isna(v) else f"{v:.2f}"}</td>' for v in vals)
         rows.append(f'<tr><td class="name">{_e(r.web_name)}{news}</td><td class="team">{_e(r.team_name)}</td>'
-                    f'<td class="pos">{POS_LETTER[r.element_type]}</td>{cells}'
+                    f'<td class="pos">{POS_LETTER[r.element_type]}</td>{stat_cells(players, p)}{cells}'
                     f'<td class="tot">{sum(v for v in vals if not pd.isna(v)):.2f}</td></tr>')
     return CSS + f'<div class="sc-wrap"><table class="sc">{_head(gws)}<tbody>{"".join(rows)}</tbody></table></div>'
 
@@ -103,13 +120,13 @@ def plan_grid(plan: list[dict], start_squad: list[int], players: pd.DataFrame, p
             cls = "" if starter else ' class="bench"'
             cells.append(f'<td{cls} style="background:{colour(v)}">{v:.2f}{badge}</td>')
         rows.append(f'<tr><td class="name">{_e(r.web_name)}{tag}</td><td class="team">{_e(r.team_name)}</td>'
-                    f'<td class="pos">{POS_LETTER[r.element_type]}</td>{"".join(cells)}'
+                    f'<td class="pos">{POS_LETTER[r.element_type]}</td>{stat_cells(players, q)}{"".join(cells)}'
                     f'<td class="tot">{total:.2f}</td></tr>')
     hits = "".join(f"<td>{'-' + str(int(p['hit_cost'])) if p['hits'] else ''}</td>" for p in plan)
     team_tot = "".join(f"<td>{p['net_points']:.1f}</td>" for p in plan)
-    rows.append(f'<tr class="sum"><td class="name" colspan="3">Hits</td>{hits}'
+    rows.append(f'<tr class="sum"><td class="name" colspan="6">Hits</td>{hits}'
                 f'<td>{-sum(p["hit_cost"] for p in plan):.0f}</td></tr>')
-    rows.append(f'<tr class="sum"><td class="name" colspan="3">Team projected points</td>{team_tot}'
+    rows.append(f'<tr class="sum"><td class="name" colspan="6">Team projected points</td>{team_tot}'
                 f'<td>{sum(p["net_points"] for p in plan):.1f}</td></tr>')
     key = ('<div class="sc-key">Faded = on the bench · <b>C</b> = captain (points doubled in totals) · '
            '– = not in your squad that week · totals count starters only</div>')
@@ -153,7 +170,7 @@ def transfer_value_grid(plan: list[dict], players: pd.DataFrame, proj: pd.DataFr
     moves = transfer_rows(plan, proj, hit_cost)
     if not moves:
         return CSS + '<div class="sc-key" style="margin-top:0">No transfers in this plan – rolling them is best.</div>'
-    head = ("<thead><tr><th>When</th><th class='l'>Transfer</th><th>Pos</th>"
+    head = ("<thead><tr><th>When</th><th class='l'>Transfer</th><th>Pos</th>" + STAT_HEAD
             + "".join(f"<th>GW{g}</th>" for g in gws)
             + "<th>Total</th><th>Hit</th><th>Net gain</th></tr></thead>")
     rows = []
@@ -172,17 +189,17 @@ def transfer_value_grid(plan: list[dict], players: pd.DataFrame, proj: pd.DataFr
         rows.append(
             f'<tr><td class="pos"{span}>GW{m["gw"]}</td>'
             f'<td class="name">⬇️ {_e(o[1])} <span class="tag">£{o[2]/10:.1f} · {_e(players.at[o[0], "team_short"])}</span></td>'
-            f'<td class="pos"{span}>{pos}</td>{o_cells}'
+            f'<td class="pos"{span}>{pos}</td>{stat_cells(players, o[0])}{o_cells}'
             f'<td class="tot">{sum(m["out_pts"].values()):.2f}</td>'
             f'<td class="tot"{span}>{hit}</td>'
             f'<td{span} style="background:{gain_colour(net)};font-weight:800;font-size:17px">{net:+.1f}</td></tr>'
             f'<tr><td class="name">⬆️ {_e(i[1])} <span class="tag">£{i[2]/10:.1f} · {_e(players.at[i[0], "team_short"])}</span></td>'
-            f'{i_cells}<td class="tot">{sum(m["in_pts"].values()):.2f}</td></tr>'
-            f'<tr><td class="name" style="background:#1b1b1b">Gain</td>{g_cells}'
+            f'{stat_cells(players, i[0])}{i_cells}<td class="tot">{sum(m["in_pts"].values()):.2f}</td></tr>'
+            f'<tr><td class="name" style="background:#1b1b1b">Gain</td>{stat_cells(players, None)}{g_cells}'
             f'<td style="background:{gain_colour(m["total"])};font-weight:700">{m["total"]:+.2f}</td></tr>'
         )
     total_net = sum(m["total"] - m["hit"] for m in moves)
-    rows.append(f'<tr class="sum"><td class="name" colspan="{3 + len(gws)}">All transfers together</td>'
+    rows.append(f'<tr class="sum"><td class="name" colspan="{6 + len(gws)}">All transfers together</td>'
                 f'<td>{sum(m["total"] for m in moves):+.1f}</td><td>-{sum(m["hit"] for m in moves):.0f}</td>'
                 f'<td>{total_net:+.1f}</td></tr>')
     key = ('<div class="sc-key">For each transfer: projected points of the player sold (⬇️) and bought (⬆️) '
@@ -192,19 +209,35 @@ def transfer_value_grid(plan: list[dict], players: pd.DataFrame, proj: pd.DataFr
     return CSS + f'<div class="sc-wrap"><table class="sc">{head}<tbody>{"".join(rows)}</tbody></table></div>' + key
 
 
-def singles_grid(df: pd.DataFrame, horizon_label: str) -> str:
-    """Best single transfers, styled like the other tables."""
+def singles_grid(df: pd.DataFrame, horizon_label: str, players: pd.DataFrame) -> str:
+    """Best single transfers, styled like the other tables, with TSB/TP/Form for both players."""
     if df is None or df.empty:
         return CSS + '<div class="sc-key">No single transfer gains points.</div>'
     out_c = [c for c in df.columns if c.startswith("out_pts")][0]
     in_c = [c for c in df.columns if c.startswith("in_pts")][0]
-    head = ("<thead><tr><th class='l'>Out</th><th class='l'>In</th><th>Pos</th><th>Price</th>"
-            f"<th>Bank after</th><th>Out pts</th><th>In pts</th><th>Gain {horizon_label}</th></tr></thead>")
+    head = ("<thead><tr><th class='l'>Out</th>" + STAT_HEAD + "<th class='l'>In</th>" + STAT_HEAD +
+            "<th>Pos</th><th>Price</th><th>Bank after</th><th>Out pts</th><th>In pts</th>"
+            f"<th>Gain {horizon_label}</th></tr></thead>")
     rows = "".join(
-        f'<tr><td class="name">{_e(r["out"])}</td><td class="name">{_e(r["in"])} '
-        f'<span class="tag">{_e(r["in_team"])}</span></td><td class="pos">{_e(str(r["pos"])[:1])}</td>'
+        f'<tr><td class="name">{_e(r["out"])}</td>{stat_cells(players, int(r["out_id"]))}'
+        f'<td class="name">{_e(r["in"])} <span class="tag">{_e(r["in_team"])}</span></td>'
+        f'{stat_cells(players, int(r["in_id"]))}<td class="pos">{_e(str(r["pos"])[:1])}</td>'
         f'<td class="team">£{r["in_price"]:.1f}</td><td class="team">£{r["bank_after"]:.1f}</td>'
         f'<td class="team">{r[out_c]:.1f}</td><td class="team">{r[in_c]:.1f}</td>'
         f'<td style="background:{gain_colour(r["gain"] / 2)};font-weight:700">{r["gain"]:+.1f}</td></tr>'
         for _, r in df.iterrows())
     return CSS + f'<div class="sc-wrap"><table class="sc">{head}<tbody>{rows}</tbody></table></div>'
+
+
+def stats_table(players: pd.DataFrame) -> pd.DataFrame:
+    """The FPL statistics table (fantasy.premierleague.com/statistics) as a DataFrame."""
+    d = players.copy()
+    d["net_tr"] = d.transfers_in_event - d.transfers_out_event
+    out = pd.DataFrame({
+        "Player": d.web_name, "Team": d.team_short, "Pos": d.pos, "£m": d.now_cost / 10,
+        "TSB %": d.tsb, "TP": d.tp, "Form": d.form_score, "PPG": pd.to_numeric(d.points_per_game, errors="coerce"),
+        "Mins": d.minutes, "G": d.goals_scored, "A": d.assists, "CS": d.clean_sheets, "Bonus": d.bonus,
+        "xG": d.expected_goals, "xA": d.expected_assists, "ICT": d.ict_index, "Net transfers (GW)": d.net_tr,
+        "News": d.news,
+    })
+    return out

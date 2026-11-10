@@ -9,7 +9,7 @@ from fpl_planner import ffs, fpl_api
 from fpl_planner.config import DEBUG_DIR, get_ffs_credentials
 from fpl_planner.optimizer import Settings
 from fpl_planner.planner import recommend
-from fpl_planner.ui_tables import plan_grid, singles_grid, squad_grid, transfer_value_grid
+from fpl_planner.ui_tables import plan_grid, singles_grid, squad_grid, stats_table, transfer_value_grid
 
 st.set_page_config(page_title="FPL Transfer Planner", page_icon="⚽", layout="wide")
 
@@ -98,7 +98,7 @@ with st.sidebar:
 team_id = st.text_input("FPL team ID", value=st.query_params.get("team", ""),
                         help="The number in your FPL points page URL, e.g. 2804900")
 
-tab_plan, tab_data = st.tabs(["Transfer plan", "Projections by gameweek"])
+tab_plan, tab_data, tab_stats = st.tabs(["Transfer plan", "Projections by gameweek", "FPL statistics"])
 
 with tab_data:
     if snap:
@@ -110,14 +110,39 @@ with tab_data:
         wide = sel.pivot_table(index="fpl_id", columns="gw", values="pts", aggfunc="sum")
         wide.columns = [f"GW{c}" for c in wide.columns]
         wide["Total"] = wide.sum(axis=1)
-        info = players.loc[players.index.intersection(wide.index), ["web_name", "team_short", "pos", "now_cost"]]
-        info = info.rename(columns={"web_name": "Player", "team_short": "Team", "pos": "Pos", "now_cost": "£m"})
+        info = players.loc[players.index.intersection(wide.index),
+                           ["web_name", "team_short", "pos", "now_cost", "tsb", "tp", "form_score"]]
+        info = info.rename(columns={"web_name": "Player", "team_short": "Team", "pos": "Pos", "now_cost": "£m",
+                                    "tsb": "TSB %", "tp": "TP", "form_score": "Form"})
         info["£m"] = info["£m"] / 10
         table = info.join(wide.round(2)).sort_values("Total", ascending=False)
         pos = st.multiselect("Positions", ["GKP", "DEF", "MID", "FWD"], default=["GKP", "DEF", "MID", "FWD"])
         st.dataframe(table[table.Pos.isin(pos)], hide_index=True, use_container_width=True, height=600)
     else:
         st.info("No Scout projections yet.")
+
+with tab_stats:
+    st.caption("Live from the official FPL statistics (fantasy.premierleague.com/statistics). "
+               "TSB = selected by % of managers · TP = total points · Form = FPL form.")
+    stats = stats_table(fpl_api.players_df())
+    f1, f2, f3, f4 = st.columns(4)
+    s_pos = f1.selectbox("Position", ["All", "GKP", "DEF", "MID", "FWD"])
+    s_team = f2.selectbox("Team", ["All"] + sorted(stats.Team.unique()))
+    s_max = f3.slider("Max price £m", float(stats["£m"].min()), float(stats["£m"].max()), float(stats["£m"].max()), 0.5)
+    s_sort = f4.selectbox("Sort by", ["TP", "Form", "TSB %", "PPG", "£m", "xG", "xA", "ICT", "Mins",
+                                      "Net transfers (GW)", "G", "A", "CS", "Bonus"])
+    view = stats[stats["£m"] <= s_max]
+    if s_pos != "All":
+        view = view[view.Pos == s_pos]
+    if s_team != "All":
+        view = view[view.Team == s_team]
+    view = view.sort_values(s_sort, ascending=False)
+    st.dataframe(view, hide_index=True, use_container_width=True, height=650,
+                 column_config={"£m": st.column_config.NumberColumn(format="£%.1f"),
+                                "TSB %": st.column_config.NumberColumn(format="%.1f%%"),
+                                "Form": st.column_config.NumberColumn(format="%.1f"),
+                                "Net transfers (GW)": st.column_config.NumberColumn(format="%+d")})
+    st.caption(f"{len(view)} players")
 
 with tab_plan:
     if st.button("Review my team", type="primary") and team_id.strip().isdigit():
@@ -164,6 +189,8 @@ with tab_plan:
                 st.caption(f"Bank after: £{p['bank']/10:.1f}m")
                 rows = [{"Pos": players.at[q, "pos"], "Player": players.at[q, "web_name"],
                          "Team": players.at[q, "team_short"], "Proj": round(proj.at[q, p['gw']], 2),
+                         "TSB %": players.at[q, "tsb"], "TP": players.at[q, "tp"],
+                         "Form": players.at[q, "form_score"],
                          "Role": "C" if q == p["captain"][0] else ("XI" if q in p["xi"] else "Bench")}
                         for q in p["xi"] + p["bench"]]
                 st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
@@ -175,4 +202,4 @@ with tab_plan:
         st.markdown(squad_grid(t.squad, players, proj, gws), unsafe_allow_html=True)
 
         st.markdown(f"### Best single transfers (projected gain over GW{gws[0]}–GW{gws[-1]})")
-        st.markdown(singles_grid(r["singles"], f"GW{gws[0]}–{gws[-1]}"), unsafe_allow_html=True)
+        st.markdown(singles_grid(r["singles"], f"GW{gws[0]}–{gws[-1]}", players), unsafe_allow_html=True)

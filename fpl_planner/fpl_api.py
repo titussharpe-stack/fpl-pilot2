@@ -54,7 +54,16 @@ def players_df(boot: dict | None = None) -> pd.DataFrame:
     teams = {t["id"]: t for t in boot["teams"]}
     df = pd.DataFrame(boot["elements"])
     df = df[["id", "web_name", "first_name", "second_name", "team", "element_type",
-             "now_cost", "cost_change_start", "status", "chance_of_playing_next_round", "news"]].copy()
+             "now_cost", "cost_change_start", "status", "chance_of_playing_next_round", "news",
+             "selected_by_percent", "total_points", "form", "points_per_game", "minutes", "goals_scored",
+             "assists", "clean_sheets", "bonus", "expected_goals", "expected_assists", "ict_index",
+             "transfers_in_event", "transfers_out_event"]].copy()
+    num = ["selected_by_percent", "form", "points_per_game", "expected_goals", "expected_assists", "ict_index"]
+    df[num] = df[num].apply(pd.to_numeric, errors="coerce")
+    # short names used across the app: TSB = selected by %, TP = total points, Form = FPL form
+    df["tsb"] = df["selected_by_percent"]
+    df["tp"] = df["total_points"]
+    df["form_score"] = df["form"]
     df["team_name"] = df["team"].map(lambda t: teams[t]["name"])
     df["team_short"] = df["team"].map(lambda t: teams[t]["short_name"])
     df["pos"] = df["element_type"].map({1: "GKP", 2: "DEF", 3: "MID", 4: "FWD"})

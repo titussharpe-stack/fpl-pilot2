@@ -170,7 +170,7 @@ def single_transfers(players, projections, squad, selling, bank, gws, top=20) ->
                 continue
             gain = tot.get(pid, 0) - tot.get(out, 0)
             if gain > 0:
-                rows.append({"out": o.web_name, "in": r.web_name, "pos": r.pos, "in_team": r.team_short,
+                rows.append({"out_id": out, "in_id": pid, "out": o.web_name, "in": r.web_name, "pos": r.pos, "in_team": r.team_short,
                              "in_price": r.now_cost / 10, "bank_after": (money - r.now_cost) / 10,
                              f"out_pts_{len(gws)}gw": round(tot.get(out, 0), 1),
                              f"in_pts_{len(gws)}gw": round(tot.get(pid, 0), 1), "gain": round(gain, 1)})
