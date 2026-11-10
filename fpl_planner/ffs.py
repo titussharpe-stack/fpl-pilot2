@@ -249,6 +249,10 @@ def scrape(force: bool = False, last_gw: int = 38, progress=None) -> dict:
             progress(i / len(gws), f"Gameweek {gw}")
         wide = fetch_range(s, gw, gw)
         long, um = to_long(wide, players, gw)
+        if long.empty:
+            sample = wide.head(3).to_dict("records")
+            raise ScoutError(f"Scout's table loaded ({len(wide)} rows) but no names matched FPL players. "
+                             f"Columns: {list(wide.columns)}. First rows: {sample}")
         if not [c for c in wide.columns if isinstance(c, int)]:
             frames.append(long)
         else:  # page already gives per-GW columns: one load is enough

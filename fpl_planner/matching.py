@@ -65,20 +65,50 @@ def _name_score(q: str, r) -> float:
     return best
 
 
+def _name_variants(raw: str, look: dict[str, int]) -> tuple[list[str], int | None, int | None]:
+    """A Scout cell may hold 'Haaland', or 'Haaland MCI FWD £14.5m' all in one. Split out the extras."""
+    raw = re.sub(r"\(.*?\)", " ", str(raw))
+    first_line = re.split(r"\s{2,}|\n|\|", raw.strip())[0]
+    tokens = norm(raw).split()
+    team = pos = None
+    keep = []
+    for tok in tokens:
+        if team is None and tok in look and len(tok) >= 3 and tok.upper() == tok.upper():
+            if tok in {norm(k) for k in look if len(k) == 3}:
+                team = look[tok]
+                continue
+        if pos is None and tok in ("gk", "gkp", "def", "mid", "fwd"):
+            pos = POS_MAP[tok]
+            continue
+        if re.fullmatch(r"\d+(\.\d+)?m?", tok):
+            continue
+        keep.append(tok)
+    variants = [v for v in dict.fromkeys([norm(first_line), " ".join(keep), norm(raw)]) if v]
+    return variants, team, pos
+
+
 def match_players(rows: pd.DataFrame, players: pd.DataFrame) -> pd.Series:
     """rows needs 'name' and optional 'team' / 'pos'. Returns FPL id per row (NaN if unmatched)."""
     look = team_lookup(players)
     out = []
     for _, row in rows.iterrows():
-        q = norm(re.sub(r"\(.*?\)", "", str(row["name"])))
-        pool = players
+        variants, tid2, pos2 = _name_variants(row["name"], look)
         tid = resolve_team(row.get("team", ""), look) if "team" in rows else None
-        if tid is not None:
-            pool = pool[pool.team == tid]
+        tid = tid if tid is not None else tid2
         pos = POS_MAP.get(norm(row.get("pos", ""))) if "pos" in rows else None
-        if pos is not None:
-            pool = pool[pool.element_type == pos]
-        scored = sorted(((_name_score(q, r), pid) for pid, r in pool.iterrows()), reverse=True)
-        ok = scored and scored[0][0] >= (0.72 if tid is not None else 0.92)
-        out.append(scored[0][1] if ok else None)
+        pos = pos if pos is not None else pos2
+        best = None
+        for use_filters in (True, False):
+            pool = players
+            if use_filters and tid is not None:
+                pool = pool[pool.team == tid]
+            if use_filters and pos is not None:
+                pool = pool[pool.element_type == pos]
+            scored = sorted(((max(_name_score(q, r) for q in variants), pid) for pid, r in pool.iterrows()),
+                            reverse=True)
+            need = 0.72 if (use_filters and tid is not None) else 0.9
+            if scored and scored[0][0] >= need:
+                best = scored[0][1]
+                break
+        out.append(best)
     return pd.Series(out, index=rows.index, dtype="Int64")
