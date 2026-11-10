@@ -12,7 +12,7 @@ import streamlit as st
 
 def _refresh_changed_modules():
     """Streamlit only reloads app.py on update; reload our own modules too if their files changed."""
-    order = ["config", "fpl_api", "matching", "team", "ffs", "optimizer", "planner", "ui_tables"]
+    order = ["config", "fpl_api", "matching", "team", "ffs", "optimizer", "planner", "suggest", "ui_tables"]
     changed = False
     for name in order:
         mod = sys.modules.get(f"fpl_planner.{name}")
@@ -31,9 +31,9 @@ from fpl_planner import ffs, fpl_api
 from fpl_planner.config import DEBUG_DIR, get_ffs_credentials
 from fpl_planner.optimizer import Settings
 from fpl_planner.planner import recommend
-from fpl_planner.ui_tables import (plan_grid, singles_grid, squad_grid, stats_table, suggestions_grid,
-                                   transfer_value_grid)
-from fpl_planner.suggest import METRICS, suggestions
+from fpl_planner.ui_tables import (factor_plan_grid, factor_summary, plan_grid, singles_grid, squad_grid,
+                                   stats_table, transfer_value_grid)
+from fpl_planner.suggest import all_factor_plans, factor_value
 from fpl_planner.planner import get_projections
 from fpl_planner.team import load_team
 
@@ -147,32 +147,37 @@ with tab_data:
     else:
         st.info("No Scout projections yet.")
 
-@st.cache_data(ttl=300, show_spinner=False)
-def cached_team(tid: int):
-    return load_team(tid)
-
-
 with tab_sugg:
-    st.caption("Best single transfers for the next 4 gameweeks, ranked by the measure you choose. "
-               "Each shows projected points for the next 8 gameweeks and the rest of the season.")
-    a1, a2, a3 = st.columns([2, 2, 1])
-    metric = a1.selectbox("Rank by", list(METRICS), index=2)
-    sg_pos = a2.multiselect("Positions", ["GKP", "DEF", "MID", "FWD"], default=["GKP", "DEF", "MID", "FWD"],
-                            key="sugg_pos")
-    sg_top = a3.number_input("How many", 5, 40, 15, 5)
+    st.caption("Each factor below picks its own transfers for the next 4 gameweeks (same budget, free "
+               "transfers, hit and squad rules). Compare them on Scout's projected points.")
     if not team_id.strip().isdigit():
         st.info("Enter your FPL team ID above.")
-    else:
+    elif st.button("Suggest transfers for every factor", type="primary"):
         try:
-            team_s = cached_team(int(team_id))
+            team_s = load_team(int(team_id))
             proj_s, src_s = get_projections(team_s.next_gw, allow_fallback=fallback)
             players_s = fpl_api.players_df()
-            rows_s = suggestions(team_s, players_s, proj_s, metric, top=int(sg_top), positions=tuple(sg_pos))
-            st.caption(f"{team_s.name} · bank £{team_s.bank/10:.1f}m · {team_s.free_transfers} free transfer(s) · "
-                       f"projections: {src_s}")
-            st.markdown(suggestions_grid(rows_s, players_s, proj_s, team_s.next_gw, metric), unsafe_allow_html=True)
+            bar = st.progress(0.0, text="Working out transfers…")
+            plans = all_factor_plans(team_s, players_s, proj_s,
+                                     Settings(max_hits_per_gw=max_hits, bench_weight=bench_w),
+                                     progress=lambda f, t: bar.progress(f, text=f"Working out: {t}"))
+            bar.empty()
+            st.session_state.factor_result = (team_s, players_s, proj_s, src_s, plans)
         except Exception as e:
             st.error(str(e))
+    if "factor_result" in st.session_state and team_id.strip().isdigit():
+        team_s, players_s, proj_s, src_s, plans = st.session_state.factor_result
+        if str(team_s.team_id) == team_id.strip():
+            st.caption(f"{team_s.name} · bank £{team_s.bank/10:.1f}m · {team_s.free_transfers} free transfer(s) · "
+                       f"projections: {src_s}")
+            st.markdown("#### Comparison")
+            st.markdown(factor_summary(plans, players_s), unsafe_allow_html=True)
+            st.markdown("#### Transfers by factor")
+            for sub, plan in zip(st.tabs([p["factor"] for p in plans]), plans):
+                with sub:
+                    vals = factor_value(plan["factor"], players_s, proj_s, team_s.next_gw)
+                    st.markdown(factor_plan_grid(plan, players_s, proj_s, team_s.next_gw, vals),
+                                unsafe_allow_html=True)
 
 with tab_stats:
     st.caption("Live from the official FPL statistics (fantasy.premierleague.com/statistics). "

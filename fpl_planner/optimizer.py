@@ -31,6 +31,7 @@ class Settings:
     banned: tuple = ()            # never buy
     pool_per_pos: int | None = None  # candidates per position (auto: smaller for long horizons)
     time_limit: int = 60          # seconds; returns best plan found if it runs out
+    transfer_weeks: int | None = None  # only allow transfers in the first N weeks of the plan
 
 
 def _pool(players, proj, squad, s: Settings) -> list[int]:
@@ -105,7 +106,7 @@ def solve(players: pd.DataFrame, projections: pd.DataFrame, squad: list[int],
             m += pulp.lpSum(x[p][t] for p in P if club[p] == cl) <= 3
         m += pulp.lpSum(l[p][t] for p in P) == 11
         m += pulp.lpSum(c[p][t] for p in P) == 1
-        if not allow_transfers:
+        if not allow_transfers or (s.transfer_weeks is not None and t >= s.transfer_weeks):
             m += n == 0
         m += n <= s.max_transfers_per_gw
         # free transfers: hits cover anything beyond the free ones; leftovers roll (+1, max 5)

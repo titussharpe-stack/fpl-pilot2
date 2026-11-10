@@ -243,57 +243,78 @@ def stats_table(players: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def suggestions_grid(rows: list[dict], players: pd.DataFrame, proj: pd.DataFrame, next_gw: int,
-                     metric: str, show_weeks: int = 8) -> str:
-    """Suggested swaps: player out / in / gain with the next `show_weeks` GWs and rest-of-season totals."""
-    if not rows:
-        return CSS + '<div class="sc-key">No affordable transfer improves on this measure.</div>'
+
+def factor_summary(plans: list[dict], players: pd.DataFrame) -> str:
+    """One row per factor: its transfers and how they score on Scout projections."""
+    head = ("<thead><tr><th class='l'>Factor</th><th class='l'>Transfers (next 4 GWs)</th><th>Hits</th>"
+            "<th>Gain next 4 GWs</th><th>Gain next 8 GWs</th><th>Gain rest of season</th></tr></thead>")
+    rows = []
+    for p in plans:
+        moves = "<br>".join(f'<span class="tag" style="margin:0">GW{m["gw"]}</span> {_e(m["out"][1])} → '
+                            f'<b>{_e(m["in"][1])}</b>' for m in p["moves"]) or "Roll transfers"
+        e = p["eval"]
+        rows.append(f'<tr><td class="name"><b>{_e(p["factor"])}</b></td>'
+                    f'<td class="name" style="font-weight:400;line-height:1.7">{moves}</td>'
+                    f'<td class="tot">{"-" + str(int(p["hits"])) if p["hits"] else ""}</td>'
+                    + "".join(f'<td style="background:{gain_colour(e[k] / s)};font-weight:700">{e[k]:+.1f}</td>'
+                              for k, s in (("4 weeks", 3), ("8 weeks", 5), ("Season", 12)))
+                    + "</tr>")
+    key = ('<div class="sc-key">Each factor picks its own transfers for the next 4 gameweeks. The gain columns '
+           'score every plan on the same Scout projected points (after hits), so you can compare them.</div>')
+    return CSS + f'<div class="sc-wrap"><table class="sc">{head}<tbody>{"".join(rows)}</tbody></table></div>' + key
+
+
+def factor_plan_grid(plan: dict, players: pd.DataFrame, proj: pd.DataFrame, next_gw: int,
+                     factor_vals: pd.Series, show_weeks: int = 8) -> str:
+    """A factor's transfers with both players' projected points for the next 8 GWs and the season."""
+    moves = plan["moves"]
+    if not moves:
+        return CSS + '<div class="sc-key">This factor recommends no transfers – roll them.</div>'
     gws = list(range(next_gw, min(next_gw + show_weeks, 39)))
     season = list(range(next_gw, 39))
     wide = proj[proj.gw >= next_gw].pivot_table(index="fpl_id", columns="gw", values="pts", aggfunc="sum")
+    factor = plan["factor"]
+    whole = "Total points" in factor or "Net" in factor
 
     def pts(pid, g):
         return float(wide.at[pid, g]) if pid in wide.index and g in wide.columns and pd.notna(wide.at[pid, g]) else 0.0
 
-    def tot(pid, weeks):
-        return sum(pts(pid, g) for g in weeks)
+    def fv(pid):
+        v = float(factor_vals.get(pid, 0.0))
+        return f"{v:,.0f}" if whole else f"{v:.1f}"
 
-    is_proj = "projection" in metric.lower() or "season" in metric.lower()
-    fmt = (lambda v: f"{v:.1f}") if is_proj or "form" in metric.lower() else (lambda v: f"{v:,.0f}")
-    head = ("<thead><tr><th>#</th><th class='l'>Transfer</th><th>Pos</th>" + STAT_HEAD
-            + f'<th title="The measure you ranked by">{_e(metric)}</th>'
-            + "".join(f"<th>GW{g}</th>" for g in gws)
-            + f"<th>{len(gws)}-GW total</th><th>Season total</th></tr></thead>")
-    out_rows = []
-    for n, r in enumerate(rows, 1):
-        o, i = r["out_id"], r["in_id"]
+    head = ("<thead><tr><th>When</th><th class='l'>Transfer</th><th>Pos</th>" + STAT_HEAD
+            + f"<th>{_e(factor)}</th>" + "".join(f"<th>GW{g}</th>" for g in gws)
+            + f"<th>{len(gws)}-GW total</th><th>Season total</th><th>Hit</th></tr></thead>")
+    rows = []
+    for m in moves:
+        o, i, wk = m["out"][0], m["in"][0], m["gw"]
         span = ' rowspan="3"'
         pos = POS_LETTER[players.at[i, "element_type"]]
 
-        def player_row(pid, arrow, price, first):
-            cells = "".join(f'<td style="background:{colour(pts(pid, g))}">{pts(pid, g):.2f}</td>' for g in gws)
-            pre = f'<td class="pos"{span}>{n}</td>' if first else ""
+        def prow(pid, arrow, price, first):
+            cells = "".join(f'<td style="background:{colour(pts(pid, g))}">{pts(pid, g):.2f}</td>' if g >= wk
+                            else f'<td class="none">{pts(pid, g):.2f}</td>' for g in gws)
+            t8 = sum(pts(pid, g) for g in gws if g >= wk)
+            ts = sum(pts(pid, g) for g in season if g >= wk)
+            pre = f'<td class="pos"{span}>GW{wk}</td>' if first else ""
             mid = f'<td class="pos"{span}>{pos}</td>' if first else ""
-            val = r["out_value"] if pid == o else r["in_value"]
+            hit = (f'<td class="tot"{span}>{"-" + str(int(m["hit"])) if m["hit"] else ""}</td>') if first else ""
             return (f'<tr>{pre}<td class="name">{arrow} {_e(players.at[pid, "web_name"])} '
                     f'<span class="tag">£{price/10:.1f} · {_e(players.at[pid, "team_short"])}</span></td>{mid}'
-                    f'{stat_cells(players, pid)}<td class="team">{fmt(val)}</td>{cells}'
-                    f'<td class="tot">{tot(pid, gws):.2f}</td><td class="tot">{tot(pid, season):.1f}</td></tr>')
+                    f'{stat_cells(players, pid)}<td class="team">{fv(pid)}</td>{cells}'
+                    f'<td class="tot">{t8:.2f}</td><td class="tot">{ts:.1f}</td>{hit}</tr>')
 
-        gain_cells = "".join(
-            f'<td style="background:{gain_colour(pts(i, g) - pts(o, g))};font-weight:700">'
-            f'{pts(i, g) - pts(o, g):+.2f}</td>' for g in gws)
-        g8 = tot(i, gws) - tot(o, gws)
-        gs = tot(i, season) - tot(o, season)
-        out_rows.append(
-            player_row(o, "⬇️", r["sell"], True)
-            + player_row(i, "⬆️", int(players.at[i, "now_cost"]), False)
-            + f'<tr><td class="name" style="background:#1b1b1b">Gain '
-              f'<span class="tag">bank after £{r["bank_after"]/10:.1f}</span></td>{stat_cells(players, None)}'
-              f'<td style="background:#1b1b1b;font-weight:700">+{fmt(r["gain"])}</td>{gain_cells}'
-              f'<td style="background:{gain_colour(g8 / 2)};font-weight:700">{g8:+.2f}</td>'
-              f'<td style="background:{gain_colour(gs / 4)};font-weight:700">{gs:+.1f}</td></tr>')
-    key = (f'<div class="sc-key">Ranked by the gain in <b>{_e(metric)}</b>. Only transfers you can afford now '
-           '(bank + selling price) that keep you within 3 players per club; injured, suspended and unavailable '
-           'players are left out. Projected points are from Scout.</div>')
-    return CSS + f'<div class="sc-wrap"><table class="sc">{head}<tbody>{"".join(out_rows)}</tbody></table></div>' + key
+        gain = {g: pts(i, g) - pts(o, g) for g in gws}
+        g_cells = "".join(f'<td style="background:{gain_colour(gain[g])};font-weight:700">{gain[g]:+.2f}</td>'
+                          if g >= wk else '<td class="none"></td>' for g in gws)
+        g8 = sum(gain[g] for g in gws if g >= wk)
+        gs = sum(pts(i, g) - pts(o, g) for g in season if g >= wk)
+        rows.append(prow(o, "⬇️", m["out"][2], True) + prow(i, "⬆️", m["in"][2], False)
+                    + f'<tr><td class="name" style="background:#1b1b1b">Gain</td>{stat_cells(players, None)}'
+                      f'<td style="background:#1b1b1b"></td>{g_cells}'
+                      f'<td style="background:{gain_colour(g8 / 2)};font-weight:700">{g8:+.2f}</td>'
+                      f'<td style="background:{gain_colour(gs / 4)};font-weight:700">{gs:+.1f}</td></tr>')
+    key = ('<div class="sc-key">Projected points are Scout\'s. Greyed weeks are before the transfer happens; '
+           'totals count from the transfer week.</div>')
+    return CSS + f'<div class="sc-wrap"><table class="sc">{head}<tbody>{"".join(rows)}</tbody></table></div>' + key
