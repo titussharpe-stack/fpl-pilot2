@@ -9,7 +9,7 @@ from fpl_planner import ffs, fpl_api
 from fpl_planner.config import DEBUG_DIR, get_ffs_credentials
 from fpl_planner.optimizer import Settings
 from fpl_planner.planner import recommend
-from fpl_planner.ui_tables import plan_grid, squad_grid
+from fpl_planner.ui_tables import plan_grid, singles_grid, squad_grid, transfer_value_grid
 
 st.set_page_config(page_title="FPL Transfer Planner", page_icon="⚽", layout="wide")
 
@@ -158,6 +158,9 @@ with tab_plan:
             st.caption("Solver hit its time limit – this is the best plan found, very close to optimal.")
         st.caption(f"Considered {best['pool_size']} candidate players · solved in {took:.0f}s")
         proj = best["proj"]
+        st.markdown("### Value of each transfer")
+        st.markdown(transfer_value_grid(best["plan"], players, proj, s.hit_cost), unsafe_allow_html=True)
+        st.markdown("### Week by week")
         for p in best["plan"]:
             moves = [f"**{o[1]}** (£{o[2]/10:.1f}) → **{i[1]}** (£{i[2]/10:.1f})" for o, i in p["moves"]]
             hit = f" · ⚠️ -{int(p['hit_cost'])} hit" if p["hits"] else ""
@@ -179,4 +182,4 @@ with tab_plan:
         st.markdown(squad_grid(t.squad, players, proj, gws), unsafe_allow_html=True)
 
         st.markdown(f"### Best single transfers (projected gain over GW{gws[0]}–GW{gws[-1]})")
-        st.dataframe(r["singles"], hide_index=True, use_container_width=True)
+        st.markdown(singles_grid(r["singles"], f"GW{gws[0]}–{gws[-1]}"), unsafe_allow_html=True)
