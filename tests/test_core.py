@@ -41,32 +41,50 @@ def test_optimizer_makes_obvious_transfer():
     proj = pd.DataFrame([{"fpl_id": p, "gw": g, "pts": 2.0} for p in players.index for g in gws])
     proj.loc[proj.fpl_id == 16, "pts"] = 10.0   # unowned MID who will score big
     res = solve(players, proj, squad, {p: 50 for p in squad}, bank=0, free_transfers=1, gws=gws,
-                s=Settings(pool_per_pos=50))
+                s=Settings(pool_per_pos=50, time_limit=30))
     first = res["plan"][0]
     assert [i[0] for i in first["transfers_in"]] == [16]
     assert first["hits"] == 0 and first["captain"][0] == 16
 
 
-HTML = """<html><body><table>
-<thead><tr><th>Player</th><th>Team</th><th>Pos</th><th>Price</th><th>GW11</th><th>GW12</th><th>Total</th></tr></thead>
+RMT_SINGLE = """<html><body><table>
+<thead><tr><th>Player</th><th>Team</th><th>Pos</th><th>Price</th><th>Pts</th></tr></thead>
 <tbody>
-<tr><td>Haaland</td><td>Man City</td><td>FWD</td><td>£14.5</td><td>7.1</td><td>6.4</td><td>200</td></tr>
-<tr><td>M.Salah</td><td>Liverpool</td><td>MID</td><td>£13.0</td><td>6.0</td><td>5.5</td><td>190</td></tr>
-</tbody></table></body></html>"""
+<tr><td>Haaland</td><td>MCI</td><td>FWD</td><td>£14.5m</td><td>7.1</td></tr>
+<tr><td>M.Salah</td><td>LIV</td><td>MID</td><td>£13.0m</td><td>6.0</td></tr>
+</tbody></table>
+<a href="/players/?&team=0&position=0&maxval=0&minval=0&order=0&first=11&last=11&page=2">2</a>
+</body></html>"""
+
+PLAYERS = pd.DataFrame([
+    dict(id=10, web_name="Haaland", first_name="Erling", second_name="Haaland", team=13,
+         team_name="Man City", team_short="MCI", element_type=4),
+    dict(id=20, web_name="M.Salah", first_name="Mohamed", second_name="Salah", team=12,
+         team_name="Liverpool", team_short="LIV", element_type=3),
+]).set_index("id")
 
 
-def test_parse_and_match():
-    wide = ffs.parse_tables(HTML)
-    assert list(wide["name"]) == ["Haaland", "M.Salah"] and 11 in wide and 12 in wide
-    players = pd.DataFrame([
-        dict(id=10, web_name="Haaland", first_name="Erling", second_name="Haaland", team=13,
-             team_name="Man City", team_short="MCI", element_type=4),
-        dict(id=20, web_name="M.Salah", first_name="Mohamed", second_name="Salah", team=12,
-             team_name="Liverpool", team_short="LIV", element_type=3),
-    ]).set_index("id")
-    long, unmatched = ffs.to_long(wide, players, next_gw=11)
+def test_parse_rate_my_team_single_week():
+    wide = ffs.parse_page(RMT_SINGLE)
+    assert list(wide["name"]) == ["Haaland", "M.Salah"] and list(wide["pts"]) == [7.1, 6.0]
+    assert list(wide["price"]) == [14.5, 13.0]
+    long, unmatched = ffs.to_long(wide, PLAYERS, gw=11)
     assert unmatched.empty
-    assert long.set_index(["fpl_id", "gw"]).pts.to_dict() == {(10, 11): 7.1, (10, 12): 6.4, (20, 11): 6.0, (20, 12): 5.5}
+    assert long.set_index(["fpl_id", "gw"]).pts.to_dict() == {(10, 11): 7.1, (20, 11): 6.0}
+
+
+def test_pagination_links_found():
+    base = ffs.RMT_PLAYERS.format(first=11, last=11)
+    links = ffs._page_links(RMT_SINGLE, base)
+    assert len(links) == 1 and "page=2" in links[0]
+
+
+def test_parse_per_gw_columns():
+    html = RMT_SINGLE.replace("<th>Pts</th>", "<th>GW11</th><th>GW12</th>").replace(
+        "<td>7.1</td>", "<td>7.1</td><td>6.4</td>").replace("<td>6.0</td>", "<td>6.0</td><td>5.5</td>")
+    long, _ = ffs.to_long(ffs.parse_page(html), PLAYERS)
+    assert long.set_index(["fpl_id", "gw"]).pts.to_dict() == {(10, 11): 7.1, (10, 12): 6.4,
+                                                               (20, 11): 6.0, (20, 12): 5.5}
 
 
 def test_login_page_detected():

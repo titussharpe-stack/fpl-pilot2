@@ -22,7 +22,10 @@ def recommend(team_id: int, settings: Settings = Settings(), ft_override: int | 
     snap = ffs.latest_snapshot()
     if snap is not None and snap[0].gw.max() >= team.next_gw:
         proj, meta = snap
-        source = f"Fantasy Football Scout (snapshot GW{meta.get('gw', '?')}, {meta.get('scraped_at', '')[:16]})"
+        have = set(proj.gw.unique())
+        gws = [g for g in gws if g in have] or gws
+        source = (f"Fantasy Football Scout {meta.get('source', '')} (taken before GW{meta.get('gw', '?')}, "
+                  f"{meta.get('scraped_at', '')[:16].replace('T', ' ')} UTC)")
     elif allow_fallback:
         proj, source = fpl_fallback_projections(gws), "FPL ep_next fallback (NOT Scout data)"
     else:

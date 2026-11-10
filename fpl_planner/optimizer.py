@@ -29,18 +29,20 @@ class Settings:
     ft_value: float = 0.0         # value of each free transfer left at the end
     locked: tuple = ()            # must keep / must have
     banned: tuple = ()            # never buy
-    pool_per_pos: int = 60
+    pool_per_pos: int | None = None  # candidates per position (auto: smaller for long horizons)
+    time_limit: int = 60          # seconds; returns best plan found if it runs out
 
 
 def _pool(players, proj, squad, s: Settings) -> list[int]:
     tot = proj.sum(axis=1)
+    n_top = s.pool_per_pos or max(15, 60 - 3 * (proj.shape[1] - 1))
     keep = set(squad) | set(s.locked)
     df = players.loc[players.index.intersection(proj.index)].copy()
     df["tot"] = tot
     df = df[df.status.ne("u") & ~df.index.isin(s.banned)]
     for pos in SQUAD:
         d = df[df.element_type == pos]
-        keep |= set(d.nlargest(s.pool_per_pos, "tot").index)
+        keep |= set(d.nlargest(n_top, "tot").index)
         keep |= set(d.nsmallest(6, "now_cost").index)          # cheap bench fodder
         keep |= set((d.tot / d.now_cost).nlargest(15).index)   # value picks
     return sorted(p for p in keep if p in players.index)
@@ -110,10 +112,13 @@ def solve(players: pd.DataFrame, projections: pd.DataFrame, squad: list[int],
         m += hits[t] >= n - ft[t]
         m += ft[t + 1] <= ft[t] - n + hits[t] + 1
 
-    status = m.solve(pulp.HiGHS(msg=False, timeLimit=60) if "HiGHS" in pulp.listSolvers(onlyAvailable=True)
-                     else pulp.PULP_CBC_CMD(msg=False, timeLimit=60))
-    if pulp.LpStatus[status] not in ("Optimal", "Not Solved") and m.status != 1:
-        raise RuntimeError(f"Solver status: {pulp.LpStatus[status]}")
+    solver = (pulp.HiGHS(msg=False, timeLimit=s.time_limit, gapRel=0.002)
+              if "HiGHS" in pulp.listSolvers(onlyAvailable=True)
+              else pulp.PULP_CBC_CMD(msg=False, timeLimit=s.time_limit, gapRel=0.002))
+    m.solve(solver)
+    if pulp.value(m.objective) is None or any(x[p][0].value() is None for p in P[:1]):
+        raise RuntimeError(f"No valid plan found (solver status: {pulp.LpStatus[m.status]}). "
+                           "Try a shorter planning window.")
 
     name = players["web_name"].to_dict()
     plan = []
@@ -146,7 +151,8 @@ def solve(players: pd.DataFrame, projections: pd.DataFrame, squad: list[int],
             "net_points": round(xi_pts - h * s.hit_cost, 2),
         })
     return {"plan": plan, "total_net": round(sum(p["net_points"] for p in plan), 2),
-            "proj": proj, "objective": pulp.value(m.objective)}
+            "proj": proj, "objective": pulp.value(m.objective), "pool_size": len(P),
+            "status": pulp.LpStatus[m.status], "solver_status": m.sol_status}
 
 
 def single_transfers(players, projections, squad, selling, bank, gws, top=20) -> pd.DataFrame:

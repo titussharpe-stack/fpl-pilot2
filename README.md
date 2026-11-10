@@ -1,8 +1,14 @@
 # FPL Transfer Planner
 
 Enter an FPL team ID → see bank, squad selling value, total budget and free
-transfers → get the best transfer plan for the next 4 gameweeks, based on
-Fantasy Football Scout's projected points.
+transfers → get the best transfer plan for however many gameweeks ahead you
+choose (1 week up to the rest of the season), based on Fantasy Football Scout's
+Rate My Team projected points.
+
+Projections come from
+`https://rate-my-team.fantasyfootballscout.co.uk/players/?...&first=A&last=B`.
+The app loads that page once per remaining gameweek (first = last = that week)
+to get a per-gameweek projection for every player.
 
 ## Setup
 ```bash
@@ -27,6 +33,7 @@ variables instead.
 python -m fpl_planner scrape            # now, if this GW isn't saved yet
 python -m fpl_planner scrape --force    # re-pull
 python -m fpl_planner schedule          # leave running: scrapes 30h before each deadline
+python -m fpl_planner plan 2804900 --horizon 10   # plan 10 weeks ahead
 ```
 Or with cron (checks hourly, scrapes once per GW):
 `0 * * * * cd /path/to/fpl-planner && .venv/bin/python -m fpl_planner scrape --if-due`
