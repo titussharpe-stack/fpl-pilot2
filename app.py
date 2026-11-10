@@ -9,6 +9,7 @@ from fpl_planner import ffs, fpl_api
 from fpl_planner.config import DEBUG_DIR, get_ffs_credentials
 from fpl_planner.optimizer import Settings
 from fpl_planner.planner import recommend
+from fpl_planner.ui_tables import plan_grid, squad_grid
 
 st.set_page_config(page_title="FPL Transfer Planner", page_icon="⚽", layout="wide")
 
@@ -171,13 +172,11 @@ with tab_plan:
                         for q in p["xi"] + p["bench"]]
                 st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
 
-        st.markdown("### Current squad projections")
-        sq = pd.DataFrame([{"Pos": players.at[q, "pos"], "Player": players.at[q, "web_name"],
-                            "Team": players.at[q, "team_short"], "Sell £m": t.selling_price[q] / 10,
-                            **{f"GW{g}": round(proj.at[q, g], 1) for g in gws},
-                            "Total": round(proj.loc[q].sum(), 1), "News": players.at[q, "news"]} for q in t.squad])
-        st.dataframe(sq.sort_values(["Pos", "Total"], ascending=[True, False]), hide_index=True,
-                     use_container_width=True)
+        st.markdown(f"### Your team over GW{gws[0]}–GW{gws[-1]} with the planned transfers")
+        st.markdown(plan_grid(best["plan"], t.squad, players, proj), unsafe_allow_html=True)
+
+        st.markdown(f"### Current squad projections (GW{gws[0]}–GW{gws[-1]}, no transfers)")
+        st.markdown(squad_grid(t.squad, players, proj, gws), unsafe_allow_html=True)
 
         st.markdown(f"### Best single transfers (projected gain over GW{gws[0]}–GW{gws[-1]})")
         st.dataframe(r["singles"], hide_index=True, use_container_width=True)
