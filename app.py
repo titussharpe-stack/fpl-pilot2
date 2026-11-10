@@ -11,12 +11,26 @@ st.set_page_config(page_title="FPL Transfer Planner", page_icon="⚽", layout="w
 
 # On Streamlit Cloud the login lives in Settings → Secrets; copy it where the scraper looks.
 import os
-try:
-    for key in ("FFS_USERNAME", "FFS_PASSWORD"):
-        if key in st.secrets and not os.environ.get(key):
-            os.environ[key] = str(st.secrets[key]).strip()
-except Exception:
-    pass
+def _load_secrets():
+    """Accept FFS_USERNAME/FFS_PASSWORD at top level or in a section, any capitalisation."""
+    try:
+        flat = {}
+        for k, v in st.secrets.items():
+            if hasattr(v, "items"):
+                flat.update({f"{k}_{k2}".upper(): v2 for k2, v2 in v.items()})
+                flat.update({str(k2).upper(): v2 for k2, v2 in v.items()})
+            else:
+                flat[str(k).upper()] = v
+        user = next((flat[k] for k in flat if ("USER" in k or "EMAIL" in k)), None)
+        pw = next((flat[k] for k in flat if "PASS" in k), None)
+        if user and pw:
+            os.environ.setdefault("FFS_USERNAME", str(user).strip())
+            os.environ.setdefault("FFS_PASSWORD", str(pw).strip())
+    except Exception:
+        pass
+
+
+_load_secrets()
 st.title("FPL Transfer Planner")
 st.caption("Your squad, budget and free transfers from FPL · projections from Fantasy Football Scout")
 
@@ -32,6 +46,12 @@ def auto_scrape(_hour: int):
 
 if get_ffs_credentials():
     import time
+    if st.button("Pull Scout projections now"):
+        auto_scrape.clear()
+        try:
+            ffs.scrape(force=True)
+        except Exception:
+            pass
     with st.spinner("Checking for this gameweek's Scout projections…"):
         scrape_error = auto_scrape(int(time.time() // 3600))
 else:
@@ -43,7 +63,7 @@ with st.sidebar:
         st.error(f"Automatic Scout update failed: {scrape_error}")
     from fpl_planner.config import DEBUG_DIR
     dbg = DEBUG_DIR / "last_page.html"
-    if dbg.exists():
+    if dbg.exists() and scrape_error:
         st.download_button("Download Scout page (for debugging)", dbg.read_bytes(),
                            file_name="scout_page.html", mime="text/html",
                            help="The page the app received from Scout. Contains no password.")
@@ -78,6 +98,18 @@ with st.sidebar:
     decay = st.slider("Weight on later weeks", 0.7, 1.0, 1.0, 0.05,
                       help="1.0 = every week counts the same; lower trusts near weeks more")
     ft_value = st.slider("Value of a saved free transfer (pts)", 0.0, 3.0, 0.0, 0.5)
+
+if not get_ffs_credentials():
+    st.error("**Scout login not found.** In Streamlit: ⋮ menu → Settings → Secrets, add\n\n"
+             "`FFS_USERNAME = \"your Scout email\"`  \n`FFS_PASSWORD = \"your Scout password\"`\n\nthen Save.")
+elif scrape_error:
+    st.error(f"**Scout login found, but pulling projections failed:** {scrape_error}")
+    from fpl_planner.config import DEBUG_DIR as _D
+    if (_D / "last_page.html").exists():
+        st.download_button("Download the Scout page for Claude to check", (_D / "last_page.html").read_bytes(),
+                           file_name="scout_page.html", mime="text/html", key="dbg_main")
+elif ffs.latest_snapshot():
+    st.success(f"Scout projections loaded (GW{ffs.latest_snapshot()[1].get('gw', '?')}).")
 
 team_id = st.text_input("FPL team ID", value=st.query_params.get("team", ""),
                         help="The number in your FPL points page URL, e.g. 2804900")
