@@ -46,7 +46,7 @@ def resolve_team(name, look: dict[str, int]) -> int | None:
     return look[best[0]] if best else None
 
 
-POS_MAP = {"gk": 1, "gkp": 1, "goalkeeper": 1, "def": 2, "defender": 2, "d": 2,
+POS_MAP = {"g": 1, "gk": 1, "gkp": 1, "goalkeeper": 1, "def": 2, "defender": 2, "d": 2,
            "mid": 3, "midfielder": 3, "m": 3, "fwd": 4, "forward": 4, "fw": 4, "f": 4, "st": 4}
 
 

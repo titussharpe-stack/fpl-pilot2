@@ -119,7 +119,12 @@ def _gw_columns(cols: list[str]) -> dict[str, int]:
 
 
 def _num(series: pd.Series) -> pd.Series:
-    return pd.to_numeric(series.astype(str).str.replace(r"[£m,%]", "", regex=True).str.strip(), errors="coerce")
+    """Read a number from a cell that may also hold hover text (e.g. '5.96 vs ARS (H)')."""
+    txt = series.astype(str).str.replace(",", "", regex=False)
+    plain = pd.to_numeric(txt.str.replace(r"[£m%]", "", regex=True).str.strip(), errors="coerce")
+    decimal = pd.to_numeric(txt.str.extract(r"(-?\d+\.\d+)", expand=False), errors="coerce")
+    integer = pd.to_numeric(txt.str.extract(r"(-?\d+)", expand=False), errors="coerce")
+    return plain.fillna(decimal).fillna(integer)
 
 
 def _points_col(t: pd.DataFrame, cols: list[str], exclude: set[str]) -> str | None:
@@ -242,25 +247,32 @@ def scrape(force: bool = False, last_gw: int = 38, progress=None) -> dict:
     PROJ_DIR.mkdir(parents=True, exist_ok=True)
     players = fpl_api.players_df(boot)
     s = _session()
+    if progress:
+        progress(0.05, f"GW{nxt}–GW{last_gw}")
+    wide = fetch_range(s, nxt, last_gw)
     frames, unmatched = [], set()
-    gws = list(range(nxt, last_gw + 1))
-    for i, gw in enumerate(gws):
-        if progress:
-            progress(i / len(gws), f"Gameweek {gw}")
-        wide = fetch_range(s, gw, gw)
-        long, um = to_long(wide, players, gw)
-        if long.empty:
-            sample = wide.head(3).to_dict("records")
-            raise ScoutError(f"Scout's table loaded ({len(wide)} rows) but no names matched FPL players. "
-                             f"Columns: {list(wide.columns)}. First rows: {sample}")
-        if not [c for c in wide.columns if isinstance(c, int)]:
-            frames.append(long)
-        else:  # page already gives per-GW columns: one load is enough
-            frames = [long[long.gw >= nxt]]
-            unmatched |= set(um["name"])
-            break
+    if [c for c in wide.columns if isinstance(c, int)]:
+        long, um = to_long(wide, players)
+        frames.append(long[long.gw >= nxt])
         unmatched |= set(um["name"])
-        time.sleep(POLITE_DELAY)
+        if frames[0].empty:
+            sample = wide.head(3).to_dict("records")
+            raise ScoutError(f"Scout's table loaded ({len(wide)} rows) but nothing usable for GW{nxt}+. "
+                             f"Columns: {list(wide.columns)[:12]}… First rows: {sample}")
+    else:  # page shows a single total: load it once per gameweek instead
+        gws = list(range(nxt, last_gw + 1))
+        for i, gw in enumerate(gws):
+            if progress:
+                progress(i / len(gws), f"Gameweek {gw}")
+            wide = fetch_range(s, gw, gw)
+            long, um = to_long(wide, players, gw)
+            if long.empty:
+                sample = wide.head(3).to_dict("records")
+                raise ScoutError(f"Scout's table loaded ({len(wide)} rows) but no names matched FPL players. "
+                                 f"Columns: {list(wide.columns)}. First rows: {sample}")
+            frames.append(long)
+            unmatched |= set(um["name"])
+            time.sleep(POLITE_DELAY)
     data = pd.concat(frames, ignore_index=True)
     if data.empty:
         raise ScoutError("Scout pages loaded but no players could be matched to FPL.")

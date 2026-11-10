@@ -89,3 +89,22 @@ def test_parse_per_gw_columns():
 
 def test_login_page_detected():
     assert ffs._is_login_page('<input name="password"> <button id="loginButton">')
+
+
+RMT_REAL_LAYOUT = """<table><thead><tr><th>Player</th><th>Team</th><th>Pos</th>
+<th><a href="#">GW10</a></th><th><a href="#">GW11</a></th><th><a href="#">GW12</a></th></tr></thead><tbody>
+<tr><td>Haaland</td><td>Man City</td><td>F</td>
+<td><span class="tip">5.96<span class="hover">vs BOU (H)</span></span></td>
+<td><span class="tip">6.10<span class="hover">GW11 vs ARS (A)</span></span></td><td>0</td></tr>
+<tr><td>Raya</td><td>Arsenal</td><td>G</td><td>4.1</td><td>3.9</td><td>4.2</td></tr>
+</tbody></table>"""
+
+
+def test_real_layout_with_hover_text_and_letter_positions():
+    players = pd.concat([PLAYERS, pd.DataFrame([dict(id=30, web_name="Raya", first_name="David",
+                         second_name="Raya Martín", team=1, team_name="Arsenal", team_short="ARS",
+                         element_type=1)]).set_index("id")])
+    long, unmatched = ffs.to_long(ffs.parse_page(RMT_REAL_LAYOUT), players)
+    got = long[long.gw >= 11].set_index(["fpl_id", "gw"]).pts.to_dict()
+    assert unmatched.empty
+    assert got == {(10, 11): 6.10, (10, 12): 0.0, (30, 11): 3.9, (30, 12): 4.2}
