@@ -97,9 +97,6 @@ with st.sidebar:
 
 team_id = st.text_input("FPL team ID", value=st.query_params.get("team", ""),
                         help="The number in your FPL points page URL, e.g. 2804900")
-c1, c2 = st.columns(2)
-ft_override = c1.number_input("Free transfers (leave 0 = auto)", 0, 5, 0)
-bank_override = c2.number_input("Bank £m (leave 0 = auto)", 0.0, 100.0, 0.0, 0.1)
 
 tab_plan, tab_data = st.tabs(["Transfer plan", "Projections by gameweek"])
 
@@ -129,8 +126,7 @@ with tab_plan:
         with st.spinner(f"Loading team and optimising {horizon} gameweek(s)…"):
             try:
                 t0 = time.time()
-                r = recommend(int(team_id), s, ft_override=ft_override or None,
-                              bank_override=round(bank_override * 10) or None, allow_fallback=fallback)
+                r = recommend(int(team_id), s, allow_fallback=fallback)
                 took = time.time() - t0
             except Exception as e:
                 st.error(str(e))
