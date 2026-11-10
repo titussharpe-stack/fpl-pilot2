@@ -8,6 +8,15 @@ from fpl_planner.optimizer import Settings
 from fpl_planner.planner import recommend
 
 st.set_page_config(page_title="FPL Transfer Planner", page_icon="⚽", layout="wide")
+
+# On Streamlit Cloud the login lives in Settings → Secrets; copy it where the scraper looks.
+import os
+try:
+    for key in ("FFS_USERNAME", "FFS_PASSWORD"):
+        if key in st.secrets and not os.environ.get(key):
+            os.environ[key] = str(st.secrets[key]).strip()
+except Exception:
+    pass
 st.title("FPL Transfer Planner")
 st.caption("Your squad, budget and free transfers from FPL · projections from Fantasy Football Scout")
 
@@ -32,6 +41,12 @@ with st.sidebar:
     st.header("Projections")
     if scrape_error:
         st.error(f"Automatic Scout update failed: {scrape_error}")
+    from fpl_planner.config import DEBUG_DIR
+    dbg = DEBUG_DIR / "last_page.html"
+    if dbg.exists():
+        st.download_button("Download Scout page (for debugging)", dbg.read_bytes(),
+                           file_name="scout_page.html", mime="text/html",
+                           help="The page the app received from Scout. Contains no password.")
     snap = ffs.latest_snapshot()
     if snap:
         meta = snap[1]

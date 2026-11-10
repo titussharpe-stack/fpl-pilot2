@@ -40,7 +40,10 @@ def login(user: str, password: str) -> requests.Session:
     r = s.post(f"{MEMBERS}/", data={"username": user, "password": password,
                                     "url": PROJ_PATH, "login": "Login"}, timeout=30)
     if _is_login_page(r.text):
-        raise ScoutError("Fantasy Football Scout login failed – check the email/password.")
+        DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+        (DEBUG_DIR / "last_page.html").write_text(r.text)
+        raise ScoutError(f"Fantasy Football Scout login failed (status {r.status_code}, page {r.url}). "
+                         "Check the email/password in Secrets – the email must match your Scout account.")
     return s
 
 
@@ -51,6 +54,8 @@ def fetch_html(session: requests.Session | None = None) -> str:
             raise ScoutError("No Scout login stored. Run:  python -m fpl_planner login")
         session = login(*creds)
     r = session.get(f"{MEMBERS}{PROJ_PATH}", timeout=60)
+    DEBUG_DIR.mkdir(parents=True, exist_ok=True)
+    (DEBUG_DIR / "last_page.html").write_text(r.text)
     r.raise_for_status()
     if _is_login_page(r.text):
         raise ScoutError("Scout sent us back to the login page – membership may lack projections access.")
@@ -177,6 +182,7 @@ def scrape(force: bool = False) -> dict:
     DEBUG_DIR.mkdir(parents=True, exist_ok=True)
     html = fetch_html()
     (DEBUG_DIR / f"gw{gw}.html").write_text(html)
+    (DEBUG_DIR / "last_page.html").write_text(html)
     wide = parse_tables(html)
     long, unmatched = to_long(wide, fpl_api.players_df(boot), gw)
     long.to_csv(path, index=False)
