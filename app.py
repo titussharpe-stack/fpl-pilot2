@@ -31,7 +31,11 @@ from fpl_planner import ffs, fpl_api
 from fpl_planner.config import DEBUG_DIR, get_ffs_credentials
 from fpl_planner.optimizer import Settings
 from fpl_planner.planner import recommend
-from fpl_planner.ui_tables import plan_grid, singles_grid, squad_grid, stats_table, transfer_value_grid
+from fpl_planner.ui_tables import (plan_grid, singles_grid, squad_grid, stats_table, suggestions_grid,
+                                   transfer_value_grid)
+from fpl_planner.suggest import METRICS, suggestions
+from fpl_planner.planner import get_projections
+from fpl_planner.team import load_team
 
 st.set_page_config(page_title="FPL Transfer Planner", page_icon="⚽", layout="wide")
 
@@ -120,7 +124,7 @@ with st.sidebar:
 team_id = st.text_input("FPL team ID", value=st.query_params.get("team", ""),
                         help="The number in your FPL points page URL, e.g. 2804900")
 
-tab_plan, tab_data, tab_stats = st.tabs(["Transfer plan", "Projections by gameweek", "FPL statistics"])
+tab_plan, tab_sugg, tab_data, tab_stats = st.tabs(["Transfer plan", "Transfer suggestions", "Projections by gameweek", "FPL statistics"])
 
 with tab_data:
     if snap:
@@ -142,6 +146,33 @@ with tab_data:
         st.dataframe(table[table.Pos.isin(pos)], hide_index=True, use_container_width=True, height=600)
     else:
         st.info("No Scout projections yet.")
+
+@st.cache_data(ttl=300, show_spinner=False)
+def cached_team(tid: int):
+    return load_team(tid)
+
+
+with tab_sugg:
+    st.caption("Best single transfers for the next 4 gameweeks, ranked by the measure you choose. "
+               "Each shows projected points for the next 8 gameweeks and the rest of the season.")
+    a1, a2, a3 = st.columns([2, 2, 1])
+    metric = a1.selectbox("Rank by", list(METRICS), index=2)
+    sg_pos = a2.multiselect("Positions", ["GKP", "DEF", "MID", "FWD"], default=["GKP", "DEF", "MID", "FWD"],
+                            key="sugg_pos")
+    sg_top = a3.number_input("How many", 5, 40, 15, 5)
+    if not team_id.strip().isdigit():
+        st.info("Enter your FPL team ID above.")
+    else:
+        try:
+            team_s = cached_team(int(team_id))
+            proj_s, src_s = get_projections(team_s.next_gw, allow_fallback=fallback)
+            players_s = fpl_api.players_df()
+            rows_s = suggestions(team_s, players_s, proj_s, metric, top=int(sg_top), positions=tuple(sg_pos))
+            st.caption(f"{team_s.name} · bank £{team_s.bank/10:.1f}m · {team_s.free_transfers} free transfer(s) · "
+                       f"projections: {src_s}")
+            st.markdown(suggestions_grid(rows_s, players_s, proj_s, team_s.next_gw, metric), unsafe_allow_html=True)
+        except Exception as e:
+            st.error(str(e))
 
 with tab_stats:
     st.caption("Live from the official FPL statistics (fantasy.premierleague.com/statistics). "

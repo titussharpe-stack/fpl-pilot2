@@ -108,3 +108,19 @@ def test_real_layout_with_hover_text_and_letter_positions():
     got = long[long.gw >= 11].set_index(["fpl_id", "gw"]).pts.to_dict()
     assert unmatched.empty
     assert got == {(10, 11): 6.10, (10, 12): 0.0, (30, 11): 3.9, (30, 12): 4.2}
+
+
+def test_suggestions_respect_budget_and_rank():
+    from fpl_planner.suggest import suggestions
+    from fpl_planner.team import TeamState
+    players = _players()
+    players["status"] = "a"
+    players["tp"] = 10; players["form_score"] = 1.0
+    players["transfers_in_event"] = 0; players["transfers_out_event"] = 0
+    players.loc[16, "form_score"] = 9.0          # great form, affordable
+    players.loc[17, ["form_score", "now_cost"]] = [10.0, 200]  # better form but too expensive
+    squad = [1, 2, 4, 5, 6, 7, 8, 11, 12, 13, 14, 15, 18, 19, 20]
+    team = TeamState(1, "t", "", 11, squad, {p: 50 for p in squad}, {p: 50 for p in squad}, 0, 1)
+    proj = pd.DataFrame([{"fpl_id": p, "gw": 11, "pts": 2.0} for p in players.index])
+    rows = suggestions(team, players, proj, "Current form")
+    assert rows[0]["in_id"] == 16 and all(r["in_id"] != 17 for r in rows)

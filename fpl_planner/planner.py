@@ -14,6 +14,19 @@ def fpl_fallback_projections(gws: list[int]):
     return pd.DataFrame(rows)
 
 
+def get_projections(next_gw: int, allow_fallback: bool = False):
+    """(projections long df, source label) – Scout snapshot if available, else optional FPL fallback."""
+    snap = ffs.latest_snapshot()
+    if snap is not None and snap[0].gw.max() >= next_gw:
+        proj, meta = snap
+        source = (f"Fantasy Football Scout {meta.get('source', '')} (taken before GW{meta.get('gw', '?')}, "
+                  f"{meta.get('scraped_at', '')[:16].replace('T', ' ')} UTC)")
+        return proj, source
+    if allow_fallback:
+        return fpl_fallback_projections(list(range(next_gw, 39))), "FPL ep_next fallback (NOT Scout data)"
+    raise ffs.ScoutError("No Scout projections for the upcoming gameweek yet. Run a scrape first.")
+
+
 def recommend(team_id: int, settings: Settings = Settings(), ft_override: int | None = None,
               bank_override: int | None = None, allow_fallback: bool = False) -> dict:
     team = load_team(team_id)
