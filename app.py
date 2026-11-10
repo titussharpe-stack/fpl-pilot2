@@ -2,8 +2,30 @@
 import os
 import time
 
+import importlib
+import sys
+from pathlib import Path
+
 import pandas as pd
 import streamlit as st
+
+
+def _refresh_changed_modules():
+    """Streamlit only reloads app.py on update; reload our own modules too if their files changed."""
+    order = ["config", "fpl_api", "matching", "team", "ffs", "optimizer", "planner", "ui_tables"]
+    changed = False
+    for name in order:
+        mod = sys.modules.get(f"fpl_planner.{name}")
+        if mod is None or not getattr(mod, "__file__", None):
+            continue
+        mtime = Path(mod.__file__).stat().st_mtime
+        if changed or getattr(mod, "_loaded_mtime", mtime) != mtime:
+            mod = importlib.reload(mod)
+            changed = True  # reload everything that depends on it too
+        mod._loaded_mtime = mtime
+
+
+_refresh_changed_modules()
 
 from fpl_planner import ffs, fpl_api
 from fpl_planner.config import DEBUG_DIR, get_ffs_credentials
