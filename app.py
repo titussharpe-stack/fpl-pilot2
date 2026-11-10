@@ -94,9 +94,6 @@ with st.sidebar:
                         help="The plan maximises total projected points over this many gameweeks.")
     max_hits = st.slider("Max -4 hits per gameweek", 0, 3, 1)
     bench_w = st.slider("Bench points weight", 0.0, 0.5, 0.1, 0.05)
-    decay = st.slider("Weight on later weeks", 0.7, 1.0, 1.0 if horizon <= 6 else 0.95, 0.01,
-                      help="1.0 = every week counts the same. Lower = trust near weeks more (useful for long plans).")
-    ft_value = st.slider("Value of a saved free transfer (pts)", 0.0, 3.0, 0.0, 0.5)
 
 team_id = st.text_input("FPL team ID", value=st.query_params.get("team", ""),
                         help="The number in your FPL points page URL, e.g. 2804900")
@@ -128,7 +125,7 @@ with tab_data:
 with tab_plan:
     if st.button("Review my team", type="primary") and team_id.strip().isdigit():
         st.query_params["team"] = team_id.strip()
-        s = Settings(horizon=horizon, max_hits_per_gw=max_hits, bench_weight=bench_w, decay=decay, ft_value=ft_value)
+        s = Settings(horizon=horizon, max_hits_per_gw=max_hits, bench_weight=bench_w)
         with st.spinner(f"Loading team and optimising {horizon} gameweek(s)…"):
             try:
                 t0 = time.time()
