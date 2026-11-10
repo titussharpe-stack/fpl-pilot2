@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.env
+data/projections/*
+!data/projections/.gitkeep
+data/debug/
+.venv/
